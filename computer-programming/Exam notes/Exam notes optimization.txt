@@ -1,0 +1,667 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
+import matplotlib as mpl
+
+#%% Lambda functions
+# If an input function has multiple arguments, you want to optimize over one
+# of them, others are considered fixed, globally defined.
+
+#%% Gradient descent
+
+## Derivatives in 1-D
+
+# First-order derivative with finite differences
+def grad(f, x, delta = 1e-5):
+    return (f(x + delta) - f(x - delta)) / (2 * delta)
+
+# Second-order partial derivatives with finite differences
+def grad2(f, x, delta = 1e-5):
+    return (f(x + 2 * delta) - 2 * f(x) + f(x - 2 * delta)) / (4 * delta**2)
+
+def grad3(f, x, delta = 1e-3):
+    return (f(x + 3 * delta) - 3 * f(x + delta) + 3 * f(x - delta) - f(x - 3 * delta)) / (8 * delta**3)
+
+# Anonymous functions: to write function of x as an argument of another function of x we need to define lambda xx.
+def grad3_naive2(f, x, delta = 1e-4): #Note that optimal delta increases as the order of derivative increases.
+    gf = lambda x: grad(f, x, delta)
+    gf2 = lambda x: grad(gf, x, delta)
+    return grad(gf2, x, delta)
+
+def gradn(n, f, x, delta = 1e-3):
+    if n == 0:
+        return f(x)
+    return grad(lambda x: gradn(n-1, f, x, delta), x, delta)
+
+def gradn_better(n, f, x, delta = 1e-3):
+    ev_points = x + np.linspace(-n, n, n+1) * delta
+    fs = f(ev_points)
+    coeffs = binom(n, np.arange(n+1))
+    coeffs *= (-1)**np.arange(n+1) * (-1)**n
+    return np.dot(fs, coeffs) / (2*delta)**n
+
+# Gradient descent in 1-D
+
+# The parameter delta controls the approximation; it should be small to get a
+# good approximation, but not too small, otherwise floating-point appr. dominate.
+
+def grad_desc1d(f, x0,            
+                grad_f = None,     
+                max_t = 100,      
+                alpha = 1e-2,     # step (AKA learning rate in machine learning)
+                epsilon = 1e-5):  # convergence criterion
+    if grad_f is None:
+        # this is a closure since f lives outside of the function
+        grad_f = lambda xx: grad(f, xx) # we will compute graf_f first relative
+        # to x0, then to updated x, so x will be variable, while f is function
+        # which does not change
+    x = x0                      
+    xs = [x0]                   
+    converged = False           
+    for k in range(max_t):      
+        p = grad_f(x)            
+        x = x - alpha * p       # Update step: move towards the negative gradient
+        xs.append(x)            
+        if abs(p) < epsilon:    # If the gradient is small enough...
+            converged = True    
+            break               
+    xs = np.array(xs)
+    return x, xs, converged
+
+## Derivatives in N-D
+# We mostly optimize functions R^n->R.
+
+# First-order derivative: gradient
+
+def grad(f, x, delta=1e-5): 
+    """
+    Compute the gradient of a function using finite differences.
+
+    Arguments:
+
+      `f`: a function of a single argument. The argument must be a
+      1-dimensional numpy array of floating points. The function
+      must return a single floating point value.
+
+      `x`: the point at which to compute the gradient. It must be a
+      1-dimensional numpy array of floating points, and a valid
+      input to `f`. Furthermore, `f` must be defined in a box
+      of width `2*delta` around `x`.
+
+      `delta`: step used in the finite differences quotient. If not given,
+      it defaults to `1e-5`.
+
+    Return value: a numpy array of the same size as `x`.
+    """
+    n = len(x)
+    g = np.zeros(n)                         # allocate the space for the graident
+    for i in range(n):                      # cycle over the dimension
+        x_old = x[i]
+        # change x[i] to x[i] + delta
+        x[i] = x_old + delta
+        fp = f(x)                           # f computed with x[i] perturbed by +delta
+        # change x[i] to x[i] - delta
+        x[i] = x_old - delta
+        fm = f(x)                           # f computed with x[i] perturbed by -delta
+        # restore x[i] to its original value
+        x[i] = x_old
+
+        ## compute the i-th component of the gradient and save it
+        g[i] = (fp - fm) / (2 * delta)
+    return g
+
+# Second-order derivative: Hessian
+
+def hessian(f, x, delta = 1e-5):
+    n = len(x)
+    hess = np.zeros((n, n))
+    for i in range(n):
+        xi_old = x[i]
+        for j in range(n):
+            xj_old = x[j]
+            x[i] += delta   # here and below we need to use += because we may have i==j
+            x[j] += delta
+            fpp = f(x)
+            x[i], x[j] = xi_old, xj_old # we need to restore the values every time before proceeding
+            x[i] += delta
+            x[j] -= delta
+            fpm = f(x)
+            x[i], x[j] = xi_old, xj_old
+            x[i] -= delta
+            x[j] += delta
+            fmp = f(x)
+            x[i], x[j] = xi_old, xj_old
+            x[i] -= delta
+            x[j] -= delta
+            fmm = f(x)
+            x[i], x[j] = xi_old, xj_old
+            gr = (fpp - fpm - fmp + fmm) / (4 * delta**2)
+            hess[i,j] = gr
+    return hess
+
+# Gradient-descent algorithm in N-D
+
+def norm(x):
+    """
+    Norm of a vector `x` (a numpy array)
+    Computes the euclidean norm (aka 2-norm): ‖x‖ = √(∑ᵢ(xᵢ²))
+    """
+    return np.sqrt(np.sum(x**2))
+    # return np.sqrt(x @ x)
+    # return np.sqrt(np.dot(x, x))
+    # `np.linalg.norm`
+
+class GDResults:
+    def __init__(self, x, y, converged, iters, xs):
+        self.x = x
+        self.fun = y
+        self.converged = converged
+        self.iters = iters
+        self.xs = xs
+
+    def __repr__(self):# __repr__ method returns string
+        s = ""
+        if self.converged:
+            s += "Optimization terminated successfully\n"
+        else:
+            s += "Optimization failed\n"
+        s += f"  final x value: {self.x}\n"
+        s += f"  final function value: {self.fun}\n"
+        s += f"  iterations: {self.iters}\n"
+        return s
+
+def grad_desc(f, x0,
+              grad_f = None,
+              max_t = 1000,
+              alpha = 0.01,
+              beta = 0.0,
+              epsilon = 1e-5,
+              callback = None,
+              verbosity = 0,
+              keep_intermediate = False
+              ):
+    """
+    Gradient descent algorithm: minimizes `f` using the gradient descent
+    method, starting from `x0`, using `alpha` as the step and `beta` as the
+    Nesterov's momentum parameter. If not provided, the gradient is
+    approximated by finite differences.
+
+    Required arguments:
+
+      `f`: a function of a single argument. The argument must be a
+      1-dimensional numpy array of floating points. The function
+      must return a single floating point value.
+
+      `x0`: the initial guess. It must be a 1-dimensional numpy array.
+
+    Optional arguments:
+
+      `grad_f`: the gradient of function `f`, accepting a 1-d numpy array
+      as input and returning a 1-d numpy array of the same size
+      as output. If not given, it's computed using `GradDescND.grad`.
+
+      `alpha`: the step of gradient descent. Must be positive. Defaults to
+      `1e-2`.
+
+      `beta`: the momentum coefficient for Nesterov's momentum method.
+      If `0.0`, the algorithm is equivalent to pure gradient descent.
+      Must be non-negative and less than `1.0`. Defaults to `0.0`.
+
+      `epsilon`: the convergence criterion for the norm of the gradient.
+      Must be non-negative. Defaults to `1e-5`.
+
+      `max_t`: the maximum number of iterations. Defaults to `1000`.
+
+      `verbosity`: a non-negative integer that determines the verbosity level:
+      0 means no output is printed; 1 means that the final result is printed;
+      2 or more means that all intermediate computation results are printed
+      (note that this slows down the computations considerably.)
+
+      `keep_intermediate`: a boolean value, specifying whether to store the
+      intermediate values of the computation in the returned object.
+      Defaults to `False`.
+
+      `callback`: a function of one argument. This is called at the end of every
+      iteration with the current vector as an argument. If it returns `True`, the
+      optimization stops.
+
+    Return value: a `GDResults` object, from which you can get the final values
+    and the number of iterations. If `keep_intermediate` is `True`, this object
+    also contains the intermediate values.
+    """
+    # TODO: argument checks...
+    if grad_f is None:
+        grad_f = lambda xx: grad(f, xx)
+    x = x0.copy()
+    xs = []
+    if keep_intermediate:
+        xs.append(x0.copy())
+    v = np.zeros(len(x))            # used for momentum update
+    converged = False
+    for k in range(max_t):
+        v *= beta
+        p = grad_f(x + v)
+        assert len(p) == len(x)
+        v -= alpha * p
+        x += v # Such update instead of x=x+v is safe as long as you append x.copy to xs!!
+        # And if you do not store intermediate values, then it does not matter
+        # and it is better because we save space.
+        if verbosity >= 2 or keep_intermediate: #??? 
+            y = f(x)
+        if verbosity >= 2:
+            print(f"step={k} x={x} f(x)={y} grad={p}")
+        if keep_intermediate:
+            xs.append(x.copy()) # Remember to append copy of x to xs so that
+            # updating x will not mutate the previous entries in the array xs
+            # but only the corresponding entry.
+        if callback is not None:
+            if callback(x):
+                break
+        if norm(p) < epsilon:
+            converged = True
+            break
+    xs = np.array(xs)
+    res = GDResults(x, f(x), converged, k+1, xs)
+    if verbosity >= 1:
+        print(res)
+    return res
+
+#%% Testing
+
+def test_grad2(f, grad_f, grad2_f, x, delta = 1e-5):
+    print("testing second derviatives")
+    an = grad2_f(x)                           # analytical
+    naive1 = grad2_naive1(grad_f, x, delta)   # numerical 1
+    naive2 = grad2_naive2(f, x, delta)        # numerical 2
+    better = grad2(f, x, delta)               # numerical 3
+    print(f"analytical={an} naive1={naive1} naive2={naive2} better={better}")
+    print("naive1-analytical=", abs(naive1-an))
+    print("naive2-analytical=", abs(naive2-an))
+    print("better-analytical=", abs(better-an))
+    
+    
+def plot_err_vs_delta(f, grad_f, grad, x, label=None):
+    #For the first derivative grad=grad and grad_f=grad_g, for the second grad=grad2 and grad_f=grad2_g
+    log_deltas = np.arange(-10.0, 10.0, 0.1)
+    deltas = 10**(log_deltas)
+    finite_diff_grad = lambda delta: grad(f, x, delta)
+    error = lambda delta: np.abs(grad_f(x) - finite_diff_grad(delta))
+    all_errors = error(deltas)
+    log_errors = np.log10(all_errors)
+    plt.xlabel("log10(delta)")
+    plt.ylabel("log10(error)")
+    #we plot both deltas and errors in logarithmic scale
+    plt.plot(log_deltas, log_errors, label=label)
+    plt.legend()
+
+
+def plot_err_vs_delta_many(f, gradflst, gradlst, x):
+    plt.clf()
+    for (grad_f, grad) in zip(gradflst, gradlst):
+        plot_err_vs_delta(f, grad_f, grad, x, label=grad_f.__name__)
+
+#plot_err_vs_delta_many(h, [grad_h, grad2_h, grad3_h, grad4_h], [grad, grad2, grad3, grad4], 0.3453)
+
+    
+    
+#%% Recursion, time and space complexity
+
+#%% Plotting
+
+## Contour plot - setup
+plt.close('all')                   # close the previous figures
+fig = plt.figure()                 # create a new one
+x0 = np.linspace(-3.0, 3.0, 1000)  # we'll be plotting x0 in the interval [-3,3]
+x1 = np.linspace(-3.0, 3.0, 1000)  # and x1 in the interval [-3,3]
+# overall interval will be then [-3,3]x[-3,3], these ranges should include our
+# initial guess and the solution to which we want to converge to visualize properly
+x0, x1 = np.meshgrid(x0, x1)       # this produces two grids, one with the x0 coordinates and one with the x1 coordinates
+z = k(np.stack((x0, x1)))          # this computes a function (in this case g) over the stacked grids, for all possible combinations of x0 and x1
+plt.contour(x0, x1, z, 50, cmap='RdGy')
+
+## Gradient and minimize trajectories
+# Getting result for gradient
+res = grad_desc(k, z0, grad_f = grad_k, alpha = 1.0, beta=0.7, epsilon = 1e-8, 
+                verbosity = 1, keep_intermediate = True) 
+zs = res.xs
+# Plotting the trajectory for gradient
+plt.plot(zs[:,0], zs[:,1], color='b', marker='o', linestyle='-',
+         label="grad_desc with momentum")
+
+# Getting result for minimize, with callback including anonymous function
+min_zs = [z0]
+res2 = minimize(k, z0,
+               jac = grad_k,
+               method = "BFGS",
+               options = {'gtol': 1e-8, 'norm': 2, 'disp': True, 'maxiter': 10**4},
+               callback = lambda xk: min_zs.append(xk))
+min_zs = np.array(min_zs)
+#Plotting the traectory for minimize
+plt.plot(min_zs[:,0], min_zs[:,1], color='r', marker='x', linestyle='-',
+         label="minimize default (BFGS)")
+
+plt.legend() #display legend
+
+
+
+# Plotting in 1-D
+xv = np.linspace(-5, 3, 1000)
+yv = k(xv)
+plt.clf()
+plt.plot(xv, yv)
+x0 = 0.0
+xf, xs, converged = grad_desc1d(k, x0, alpha = 1e-2, max_t = 10000)
+print(f"converged = {converged}")
+plt.plot(xs, k(xs), '-+')
+
+#%% Useful
+
+def flattened_to_3_d_index(index, shape):
+    '''
+    Index is integer, it is the index of an element in a flattened 3-d array
+    Shape is a tuple containing 3 elements (s, r, c), where: s is the number of 
+    submatrices, r is the number of rows and c the number of columns of each submatrix.
+    Returns (i, j, k), the 3-dimensional index corresponding to the integer index
+    in the matrix whose shape is given by input shape.
+    i is the index of submatrix
+    j is the row index of the entry in the submatrix i
+    k is the column index of the entry in the submatrix i
+    '''
+    s, r, c=shape
+    i=index//(r*c)
+    jk=index-i*(r*c)
+    j=jk//c #c=n_cols of jk matrix
+    k=jk%c 
+    return (i, j, k)
+
+def flattened_to_2_d_index(index, shape):
+    n_rows, n_cols=shape
+    return (index//n_cols, index%n_cols)
+
+
+#%% Function examples for testing purposes
+
+def g(x):
+    return x[0]**2 + 4 * x[1]**2 - 2 * x[0] * x[1] + 3 * x[0] - x[1] - 1
+
+def grad_g(x): # explicit gradient
+    dg_0 = 2 * x[0] - 2 * x[1] + 3
+    dg_1 = 8 * x[1] - 2 * x[0] - 1
+    return np.array([dg_0, dg_1])
+
+def grad2_g(x): #explicit Hessian matrix
+    return np.array([[2, -2], [-2, 8]])
+
+# Function from R^2 to R^2
+def h(x):
+    h0 = np.exp(0.01 * x[0]**2 - 0.005 * x[0] * (x[1] - 0.1))
+    h1 = np.exp(0.01 * x[1]**2 - 0.005 * x[1] + 0.3)
+    return np.array([h0, h1])
+
+# If the output is 2-d, the gradient becomes Jacobian.
+# We compute the gradient of each component separately and stack them all togehter.
+def grad_h(x):
+    h0, h1 = h(x)
+    dh0_0 = h0 * (0.02 * x[0] - 0.005 * (x[1] - 0.1))
+    dh0_1 = h0 * (-0.005 * x[0])
+    dh1_0 = h1 * 0.0 
+    dh1_1 = h1 * (0.02 * x[1] - 0.005)
+    return np.array([[dh0_0, dh0_1], [dh1_0, dh1_1]])
+
+def grad2_h(x):
+    h0, h1 = h(x)
+    gh = grad_h(x)
+    dh0_0, dh0_1, dh1_0, dh1_1 = gh[0,0], gh[0,1], gh[1,0], gh[1,1]
+    dh0_00 = h0 * 0.02 + dh0_0 * (0.02 * x[0] - 0.005 * (x[1] - 0.1))
+    dh0_01 = h0 * (-0.005) + dh0_1 * (0.02 * x[0] - 0.005 * (x[1] - 0.1))
+    dh0_10 = h0 * (-0.005) + dh0_0 * (-0.005 * x[0])
+    dh0_11 = dh0_1 * (-0.005 * x[0])
+    dh1_00 = 0.0
+    dh1_01 = 0.0
+    dh1_10 = 0.0
+    dh1_11 = h1 * 0.02 + dh1_1 * (0.02 * x[1] - 0.005)
+    return np.array([[[dh0_00, dh0_01], [dh0_10, dh0_11]], [[dh1_00, dh1_01], [dh1_10, dh1_11]]])
+
+def k(x):
+    return g(h(x))
+
+# Overall the gradient dk/dx is the (matrix) product of the Jacobian of h
+# (transposed) with the gradient of g.
+def grad_k(x):
+    gg = grad_g(h(x))
+    gh = grad_h(x)
+    return gh.T @ gg         # the `@` means matrix multiplication
+    #return np.dot(gh.T, gg) # alternative expression
+
+def grad2_k(x):
+    hx = h(x)
+    gg = grad_g(hx)
+    g2g = grad2_g(hx)
+    gh = grad_h(x)
+    g2h = grad2_h(x)
+    return gh.T @ g2g @ gh + g2h.T @ gg
+
+
+#%% From generating data to fitting
+
+## This mimics the situation in which we have some data points and a model that
+## we want to fit, and that model has some unknown parameters that we wish to
+## infer from the data.
+def s(x, a, b, c):
+    return a + b * np.sin(c * x)
+
+a_true, b_true, c_true = 0.5, 1.2, 3.5
+z_true = np.array([a_true, b_true, c_true])
+
+# Plotting the actual model from which the data originates
+x_fine = np.linspace(-5, 5, 1000)
+y_fine = s(x_fine, a_true, b_true, c_true)
+plt.clf()
+plt.plot(x_fine, y_fine, '-', label="true")
+
+# Generating noisy data artificially for the sake of demonstration
+x_train = np.linspace(-5, 5, 60)
+np.random.seed(4627323)
+y_train = s(x_train, a_true, b_true, c_true) + 0.1 * np.random.randn(len(x_train))
+
+# Plotting the data points
+plt.plot(x_train, y_train, 'o', label="data")
+
+# x_data and y_data fixed; for a given guess of the values a, b, c, 
+# the "cost" of an individual pair (x_data[i], y_data[i]) is the discrepancy 
+# between the observed value y_data[i] and the prediction based on the guess,
+## s(x_data[i], a_guess, b_guess, c_guess)
+
+def loss(z, x_data, y_data):
+    y_pred = s(x_data, z[0], z[1], z[2])
+    return np.mean((y_data - y_pred)**2)
+
+print(f"loss with true: {loss(z_true, x_train, y_train)}")
+print(f"loss with guess: {loss(z_guess, x_train, y_train)}")
+
+attempts = 100           
+a_range = -5.0, 5.0      
+b_range = 0.0, 10.0      
+c_range = -5.0, 5.0      
+
+from GradDescND import grad_desc
+best_gd_z = None # global best minimizer (for all 100 attempts)
+best_gd_f = np.inf # global best minimum (for all 100 attempts)
+all_gd_f = [] # minimums for all 100 attempts
+best_initial_guess = None # initial guess that led to the best minimum
+
+for attempt in range(attempts):
+    a_guess = np.random.uniform(a_range[0], a_range[1])
+    b_guess = np.random.uniform(b_range[0], b_range[1])
+    c_guess = np.random.uniform(c_range[0], c_range[1])
+    z_guess = np.array([a_guess, b_guess, c_guess])
+    sol = grad_desc(lambda z: loss(z, x_train, y_train),
+                    z_guess,
+                    alpha = 1e-1, beta = 0.5, max_t = 1000, verbosity = 0)
+    # if not sol.converged: # possibility to skip results which did not lead to convergence
+    #     continue
+    f_opt = sol.fun
+    all_gd_f.append(f_opt)
+    if f_opt < best_gd_f:
+        best_gd_f = f_opt
+        best_gd_z = sol.x
+        best_initial_guess[:]=z_guess
+
+if best_gd_z is not None: # if we have sol.converged condition on it is relevant
+    z_opt_gd = best_gd_z
+
+
+from scipy.optimize import minimize
+
+best_min_z = None
+best_min_f = np.inf
+all_min_f = []
+best_initial_guess_2=[]
+
+for attempt2 in range(attempts):
+    a_guess2 = np.random.uniform(a_range[0], a_range[1])
+    b_guess2 = np.random.uniform(b_range[0], b_range[1])
+    c_guess2 = np.random.uniform(c_range[0], c_range[1])
+    z_guess2 = np.array([a_guess2, b_guess2, c_guess2])
+    sol2 = minimize(lambda z: loss(z, x_train, y_train),
+                   z_guess2,
+                   options={'disp': False})
+    if not sol2.success:
+        continue
+    f_opt2 = sol2.fun
+    all_min_f.append(f_opt2)
+    if f_opt2 < best_min_f:
+        best_min_f = f_opt2
+        best_min_z = sol2.x
+        best_initial_guess_2[:]=z_guess2
+
+if best_min_z is not None: #relevant if converged
+    z_opt_min = best_min_z
+
+# Plotting the functions with the discovered parameters.
+y_opt_gd = s(x_fine, z_opt_gd[0], z_opt_gd[1], z_opt_gd[2])
+y_opt_min = s(x_fine, z_opt_min[0], z_opt_min[1], z_opt_min[2])
+plt.plot(x_fine, y_opt_gd, '-', label="fit (grad_desc)")
+plt.plot(x_fine, y_opt_min, '-', label="fit (minimize)")
+print(f"opt discrepancy grad_desc = {best_gd_f}") #since it is just diff from 0
+print(f"opt discrepancy minimize  = {best_min_f}")
+plt.legend()
+
+# Plot the two histograms of the costs associated with all 100 runs
+plt.figure()
+plt.hist(all_gd_f, bins=100, histtype='step', label='grad_desc')
+plt.hist(all_min_f, bins=100, histtype='step', label='minimize')
+plt.legend()
+
+
+
+
+## STORING INTERMEDIATE OPTIMIZATION VALUES:
+from scipy.optimize import minimize
+zs_min = [z_guess] #zs_min is external to the function
+
+res = minimize(lambda zz: loss(zz, x_train, y_train),
+               z_guess,
+               callback = lambda zk: zs_min.append(zk))
+
+### Optimization trajectories
+
+from mpl_toolkits import mplot3d
+plt.close('all')
+ax = plt.axes(projection='3d')
+ax.plot3D(zs_gd[:,0], zs_gd[:,1], zs_gd[:,2], '-x') #gradient took way more steps
+ax.plot3D(zs_min[:,0], zs_min[:,1], zs_min[:,2], '-o')
+
+
+
+#%% NEWTON'S FRACTAL
+power = 3
+
+def f(z):
+    return z**power - 1
+
+def fp(z):
+    return power*z**(power-1) 
+
+roots = [np.exp(1j* (2*np.pi/power) * k) for k in range(power)]
+#these are the roots of complex polynomial of the form z**power-1
+
+def update_newton(z, alpha=1.):
+    return z - alpha * fp(z)**(-1) * f(z) #basically formula for newton's update
+#x_{k+1}=x_{k}-alpha*(f(x_{k})/f'(x{k})), in python we just write x=x-alpha*p
+#and we automatically know that x is updated
+
+#basically what we do is
+def newtons_fractal(n=1, T=100, lim=1.):
+    z = np.zeros((n,n),dtype=complex)
+    z.real, z.imag = np.meshgrid(np.linspace(-lim,lim,n),np.linspace(-lim,lim,n))
+    #we fill the z matrix with real and imaginary parts of z
+    #we generate real parts for each z by using np.linspace(-lim,lim,n)
+    #and imaginary parts for each z by using np.linspace(-lim,lim,n)
+    #Using meshgrid and taking advantage of broadcasting, we fill the matrix z
+    #with real and imaginary parts of entries
+    #so we have n*n complex numbers and we combine all n possible values of real part
+    #with all n possible values of imaginary part, so we have n*n such combinations
+    #zij for j fixed share the real part, while zij for i fixed share the imaginary
+    #part, so columns have the same real part while rows the same imaginary
+    #that is how we filled matrix z
+    #Return coordinate matrices from coordinate vectors. So now z has 2 coordinates
+    #Re(z) and Im(z)
+    
+    for t in range(T):
+        z[:] = update_newton(z) #z[:] because z is a tuple, it is complex number
+    #for each initial guess z we use newton update
+    #at the end we want to see which initial guesses converged to which root
+    #
+        
+    dist = [np.abs(z - roots[k]) for k in range(power)] #k complex roots for kth power
+    #here we compute the distance of z from any root
+    
+    M = np.argmin(dist, axis=0) #M gives which rooot is the closest to z, Mth root
+    #i.e. np.exp(1j* (2*np.pi/power) * M)
+    
+    plt.clf()
+    plt.imshow(M) 
+
+
+    return z
+
+z = newtons_fractal(T=1000, n=10)
+
+
+
+
+#%% MORE PLOTTING
+#- plt.close('all')                   # close the previous figures
+#- plt.plot(array) plots connected points: x-coordinates are indices of elements
+#of the array and corresponding y-coordinates are their values
+#- plt.plot(x_array, y_array)
+#- fig = plt.figure()                 # create a new figure
+fig=plt.figure()
+x0 = np.linspace(-3.0, 3.0, 1000)  # we'll be plotting in the interval [-3,3]x[-3,3]
+x1 = x0
+x0, x1 = np.meshgrid(x0, x1)       # this produces two grids, one with the x0 coordinates and one with the x1 coordinates
+#z = k(np.stack((x0, x1)))          # this computes a function (in this case g) over the stacked grids
+
+
+## do a contour plot
+#plt.contour(x0, x1, z, 50, cmap='RdGy')
+
+
+'''
+np.meshgrid(x0, x1) produces two grids, matrices such that
+the rows of the first matrix are x0 and the columns of the second are x1;
+Return coordinate matrices from coordinate vectors.
+'''
+'''
+plt.contour([X, Y,] Z, [levels], **kwargs)
+X and Y must both be 2D with the same shape as Z (e.g. created via numpy.meshgrid), 
+or they must both be 1-D such that len(X) == N is the number of columns in Z 
+and len(Y) == M is the number of rows in Z.
+X and Y must both be ordered monotonically.
+If not given, they are assumed to be integer indices, i.e. X = range(N), Y = range(M).
+But sometimes, we prefer to draw on a smaller scale so we exploit linspace and
+then determine the partition into N and M elements.
+Z(M, N) array-like: The height values over which the contour is drawn.
+levels: the number of positions of the contour lines.
+'''

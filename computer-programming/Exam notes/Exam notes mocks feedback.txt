@@ -1,0 +1,332 @@
+# -*- coding: utf-8 -*-
+#%% EXAM 10
+#could be done u=1-x, U=u.reshape((n, 1))*u cu=np.sum(A*U)//2
+#x[move]+=(-1)**x[move]
+#COULD BE implemeneted by x[move]=1-x[move]
+
+'''
+def copy(self):
+    other = type(self)(self.n, 1.0, self.k) #add self.k to copy method!!
+    other.A = self.A.copy()
+    other.x = self.x.copy()
+    return other
+''' #what is this?
+
+#!!! the idea is to run the minimize f on vector with floats, then convert the
+#minimizer to besty and then compute f on besty
+
+#!!! a way to make a biased initial configuration, closer to 0: x0 = 0.3 * np.random.rand(n)
+
+'''
+tests = 10
+bestc = np.inf
+besty = None
+for i in range(tests):
+    x0 = 0.3 * np.random.rand(n)
+    # x0 = np.random.rand(n)**8     # another exmple of a way to bias the starting positions towards 0
+    sol = minimize(lambda x: f(x, A, k, alpha), x0)
+    newbest = False
+    bx = binarize(sol.x)
+    val = f(bx, A, k, alpha)
+    if val < bestc:
+        bestc = val
+        besty = bx
+        newbest = True
+    print(f"trial {i} result = {val}" + ("  [new best]" if newbest else ""))
+
+print(f"bestc = {bestc}")
+print(f"config = {besty}")
+'''
+
+
+# THEORY - FLOYD-WARSHALL TOP-DOWN
+
+def floyd_warshall(w, k = None):
+    n = w.shape[0]
+    if k is None:
+        k = n-1
+    if k == 0:
+        return w.copy()
+    d = floyd_warshall(w, k-1)
+    for i in range(n):
+        for j in range(n):
+            d[i,j] = min(d[i,j], d[i,k] + d[k,j])
+    return d
+#n**3 time and n**2 space
+
+
+#%% EXAM 8
+
+#float not callable if you forget "*" #you just specify once row or column sum, 
+#then it is already 2d array so you cannot specify axis
+#write useful codes
+
+plt.plot(x_coordinates, y_coordinates, 'o', c="red", markersize=markersize)
+
+#Initialize variable newbest inside the for loop (for different runs reinitialize
+#to False before if condition) and if the if condition is satisfied, if we update
+#the best minimum, then set newbest to True and print after each for loop where
+#if is satisfied:
+print(f"trial {i} result = {sol.fun}" + ("  [new best]" if newbest else ""))
+
+#At the end write:
+print(f"best val = {bestval}")
+print(f"config = {bestz}")
+
+
+
+#some sample generation
+'''
+tests = 20
+bestval = np.inf
+bestz = None
+for i in range(tests):
+    z0 = np.random.rand(2 * k) ## TASK 2 SOLUTION is this line
+    sol = minimize(lambda z: f(z, xp, yp), z0)
+    newbest = False
+    if sol.fun < bestval:
+        bestval = sol.fun
+        bestz = sol.x
+        newbest = True
+    print(f"trial {i} result = {sol.fun}" + ("  [new best]" if newbest else ""))
+
+print(f"best val = {bestval}")
+print(f"config = {bestz}")
+
+markersize = 8.0
+plt.clf()
+plt.plot(xp, yp, '.', c="blue", markersize=markersize)
+## TASK 3 SOLUTION
+plt.plot(bestz[::2], bestz[1::2], "o", c="red", markersize=markersize)
+plt.show()
+'''
+
+#%% EXAM 6
+#check if an array is not empty: w.size>0
+#c[:,0] = w[:, 0].cumsum() #!!! CUMSUMS, NOT TRIVIAL!!
+#using "<=" instead of "<" or changing the order of if statements
+#you could also initialize pcosts=[w[i, j]] and then after updating i and j, append to pcosts
+#remember either about initializing with last element or adding at the and first element
+
+#lin algebra instead of reshape: np.sum(x**4) + u @ w @ v
+# a = np.dot(w, v)
+# return np.sum(x**4) + np.dot(u, a)
+
+
+#%% EXAM 7
+#we don’t want to use the same index for the
+#derivation variable that is already used in the summation formulas!)
+#The first two pieces are easy since each term in the summation only involves a single variable and
+#thus only one term in the sum contributes to the derivative, the one in which i==j.
+#A simple Monte Carlo method consits in running simulations, each running for at most steps. At the
+#end of each simulation, record whether the person was still alive. The estimated probability is the fraction
+#of simulations in which the person was still alive.
+
+##RANGE FROM 1 NOT FROM GAP!!! THIS IS EXACTLY WHAT
+#YOU WANTED TO FIX AT THE BEGINNING WHEN YOU STARTED RANGE FROM 2
+
+
+#c[i]=max(c[i-1], w[i]) #??? WTF max(max(c[0:i]), w[i]) is not necessary do not change it regardless
+#of the gap it is a cumulative cost array so you choose either current
+#cost or cumulative cost of the maximum subarray from 0 to i-1, included
+
+'''
+#handling the second base case (for i=1) and possibly other base cases if
+#gap>1 in a smarter way
+for i in range(1,n):
+    xs = c[i-1]                                       # "skip" case
+    xp = w[i] + (c[i-(1+gap)] if i >= 1+gap else 0.0) # "pick" case (sol. of task 1)
+    if xp >= xs:
+        c[i] = xp
+        whence[i] = 1 + gap
+    else:
+        c[i] = xs
+        whence[i] = 1
+'''
+#!!! >gap not >=!!! silly bug!
+#potentially assert len(inds) <= 1 or np.min(np.diff(inds)) > gap
+
+#IF POSSIBLE WRITE IN FULL GENERALITY, THE INDICES, VARIABLES, NOT LIKE
+#CONSTANTS, THAT WOULD HELP IN POTENTIALLY CHANGING THE CODE AND THIS WAY
+#YOU COULD AVOID MANY BUGS
+
+#Computing a sum using boolean masking: s = np.dot(w, y) or s=np.sum(w[y])
+#inds = np.arange(n)[y] #!!! to get indices where y is True, we can use y
+#as a boolean mask applied to the array of indices, array of aranged numbers
+#from 0 to n, excluded
+#you could also return the indices of Truth from y by inds = np.flatnonzero(y)
+#which gets us indices of w included in the set, actual values included in the
+#set, we can extract by applying the boolean mask y, or a list of indices
+#extracted this way from boolean mask (inds = np.flatnonzero(y))
+#so w[inds]=w[y]
+
+
+#%% EXAM 9
+#diagonal conflicts: (abs(q0 - q1) == abs(i0 - i1) or q0==q1)
+#generating proposals with no repetitions: new_qi = (q[i] + np.random.randint(1, n)) % n
+#i1 = (i0 + np.random.randint(1, n)) % n
+#search for tasks in files
+# broadcasting:
+#def r(x):
+    # if x >= 0:
+    #     return 0.0
+    # return x**2
+    #return (x < 0) * x**2
+    
+#instead of your version:
+'''
+def r(x):
+    mask=x>=0
+    res=np.array(x)
+    res[x>=0]=0.0
+    res[x<0]=(res[x<0])**2
+    #if x >= 0:
+        #return 0.0
+    #return x**2
+    try:
+        res=float(res)
+    except:
+        type(res)==np.ndarray
+    return res
+'''
+#pattern
+tests = 20
+bestval = np.inf
+bestq = None
+for i in range(tests):
+    q0 = (n-1) * np.random.rand(n)
+    #given that (n-1) is the greatest value and we want the expected value
+    #to be (n-1)/2, we do that as expected value of np.random.rand() is 0.5
+    # we could do np.uniform(0, n, n)?
+    sol = minimize(lambda q: f(q, 0.5*n, 100.0), q0)
+    newbest = False
+    if sol.fun < bestval:
+        bestval = sol.fun
+        bestq = sol.x
+        newbest = True
+    print(f"trial {i} result = {sol.fun}" + ("  [new best]" if newbest else ""))
+    
+    
+    
+print(f"trial {i} result = {sol.fun}" + ("  [new best]" if newbest else ""))
+
+ ## check that the two methods are equivalent
+ assert abs(c - c2) < 1e-12
+ 
+ 
+ #DEALING WITH corner cases of index below 0 or above the length of array:
+     #jl = (i-1) % n e.g. -1%n=n-1
+     #jr = (i+1) % n
+     
+     
+    ## TASK 5 [extra]
+    def solve(self):
+        J, x, n = self.J, self.x, self.n
+        imin = abs(J).argmin()
+        print(f"imin={imin}")
+        x[imin] = 1
+        i0 = (imin + 1) % n
+        for d in range(n-1):
+            i1 = (i0 + 1) % n
+            x[i1] = -x[i0] * (2 * (J[i0] > 0) - 1)
+            i0 = i1
+        return self.cost()
+    
+#%% EXAM 3
+gr = np.abs(img[i, j] - img[i, j+1]) if j < m-1 else 0.0
+f = 2.0 if 0 < j < m-1 else 1.0
+
+def xgrad(img):
+    ## TASK 1: write your function here
+    if not isinstance(img, np.ndarray) or img.ndim != 2:
+        raise Exception("input must be a 2-d array")
+    n, m = img.shape
+    if m < 2:
+        raise Exception("input width must be at least 2")
+        
+    g = np.zeros((n, m))
+    g[:,0] = np.abs(img[:,0] - img[:,1])
+    g[:,-1] = np.abs(img[:,-1] - img[:,-2])
+    g[:,1:-1] = (np.abs(img[:,1:-1] - img[:,0:-2]) + np.abs(img[:,1:-1] - img[:,2:])) / 2
+
+    return g
+
+def get_seam(g):
+    if not isinstance(g, np.ndarray) or g.ndim != 2:
+        raise Exception("input must be a 2-d array")
+    n, m = g.shape
+
+    c = np.zeros((n, m))
+    whence = np.zeros((n, m), dtype=int) 
+
+    c[0, :] = g[0, :]
+    whence[0, :] = -10000 
+
+    for i in range(1, n):
+        for j in range(m):
+            c_left = c[i-1, j-1] if j > 0 else np.inf
+            c_top = c[i-1, j]
+            c_right = c[i-1, j+1] if j < m-1 else np.inf
+
+            c_min = min(c_left, c_top, c_right)
+            c[i, j] = g[i, j] + c_min
+            
+            whence[i, j]=np.argmin([c_left, c_top, c_right])-1 #OR:
+                
+            if c_min == c_left:
+                whence[i, j] = -1
+            elif c_min == c_top:
+                whence[i, j] = 0
+            else:
+                whence[i, j] = 1
+
+    seam = np.zeros(n, dtype=int)
+
+    j_best = np.argmin(c[n-1, :])
+
+    seam[-1] = j_best
+
+   
+    for i in range(n-1, 0, -1):
+        j_best += whence[i, j_best]
+        seam[i-1] = j_best
+        
+    #OR:  
+    i=n-1
+    j=j_best
+    while i>0: #and whence[i, j]!=-10000: #same as whence[i, j]!=-10000 #sentinel value
+        j+=whence[i, j]
+        i-=1
+        seam[i]=j
+
+    return seam
+
+def carve(img, seam):
+    if not isinstance(img, np.ndarray) or img.ndim != 2:
+        raise Exception("img input must be a 2-d array")
+    if not isinstance(seam, np.ndarray) or seam.ndim != 1:
+        raise Exception("seam input must be a 1-d array")
+    n, m = img.shape
+
+    if len(seam) != n:
+        raise Exception("seam length must match img rows")
+
+    new_img = np.zeros((n, m-1))
+    for i in range(n):
+        js = seam[i]
+        new_img[i,:js] = img[i,:js]
+        new_img[i,js:] = img[i,(js+1):]
+
+    return new_img
+
+if seed is not None:
+    np.random.seed(seed)
+    
+v[[i,j]] = v[[j,i]] #equivalent to v[i], v[j]=v[j], v[i]
+
+#(2 * x - 1) if we want to add or subtract and x is 1 or 0, dealing with binary
+
+#10 * np.random.rand(n) equivalent to np.random.unif(0, 10, n)
+
+i = np.random.randint(n)
+j = (i + np.random.randint(1, n)) % n

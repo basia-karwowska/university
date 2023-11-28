@@ -1,0 +1,307 @@
+## Floyd-Warshall dynamic programming algorithm
+## ============================================
+##
+## Input: We are given a directed weighted graph with N nodes.
+##        The cost of edge i->j is given in a matrix as w[i,j].
+##        If a link i->j is missing, we just set w[i,j] = np.inf.
+##        We assume that there are no cycles with negative cost.
+##
+##  Goal: Find, for each pair of indices (i,j), the minimum cost of
+##        a path connecting i to j. Note: it might be infinite...
+##        Thus the output needs to be a NxN matrix. In general, it
+##        won't be symetrical; its diagonal elements will be 0.
+##
+## Observations:
+##
+##  1. For each pair of nodes, the shortest path:
+##     a) touches each node at most once (otherwise there would be
+##        a cycle, and each cycle costs >= 0)
+##     b) thus it has length at most N (including the endpoints)
+##
+##  2. Let's call c[i,j] the optimal cost of going from i to j. We
+##     don't know it yet, it's what we're trying to compute.
+##     But we can say that surely c[i,j] <= w[i,j] for every i,j.
+##
+## Optimal cost computation
+## ------------------------
+##
+## Define a recursive relation. Start by defining the 0-th level
+## like this:
+##
+##   r[0,i,j] = w[i,j]
+##
+## This is like considering all the paths that go directly from
+## i to j without intermediaries.
+## Now suppose that you allowed each path to either be direct, or
+## to pass via node 0. Call r[1,i,j] the cost of the best result
+## between these two options. Thus:
+##
+##   r[1,i,j] = min(w[i,j], w[i,0]+w[0,j])
+##
+## That is, we choose between going directly, or going through 0.
+## Notice that we can rewrite that like this:
+##
+##   r[1,i,j] = min(r[0,i,j], r[0,i,0]+r[0,0,j])
+##
+## Now let's say that we also allow the paths to go thorugh node
+## number 1, and we pick the best paths among those that go
+## through either 0, or, 1, or neither, or both. Call that
+## r[2,i,j]. The key observation is that:
+##
+##   r[2,i,j] = min(r[1,i,j], r[1,i,1]+r[1,1,j])
+##
+## That is: the best path is either the best path that goes at most
+## through 0, or it's the best path that first goes from i to 1
+## (potentially passing trhough 0) and then goes from 1 to j (again,
+## potentially passing through 0, but we know that it won't be
+## passing thorugh 0 twice anyway).
+##
+## You can now spot a general fact: We can keep adding nodes one at
+## a time, writing
+##
+##   r[k+1,i,j] = min(r[k,i,j], r[k,i,k]+r[k,k,j])
+##
+## which is valid for 0 <= k < N.
+## When we reach k+1==N, we have allowed the paths to go through all
+## nodes potentially, therefore the result is the optimum:
+##
+##   c[i,j] = r[N,i,j]
+##
+## And thus after N steps (each of which has to be computed for all i,j)
+## we have solved the problem. The complexity is thus O(N^3).
+##
+## Implementation note : after we have computed the (k+1)-th step, we
+## don't need the k-th step any more. Thus we can save memory.
+##
+## Path reconstruction
+## -------------------
+##
+## This gives us the optimal costs, but we still don't have the
+## optimal paths. For that, we need to keep track, at each step k,
+## of the decision that we have taken when we have computed the
+## minimum (basically: did we choose the first or the second term
+## in the min?). In fact, all we need is this: given the optimal
+## path from i to j, what is the last element of the path before
+## j? We don't need anything else because if we know that our
+## path is i->...->z->j, then we can ask the same question about
+## the path from i to z, i.e. what is the penultimate element
+## before z in that path. Thus if we have that information we
+## can reconstruct the whole path. Thus we only need to keep
+## an NxN matrix of integers in memory. Call it pred[i,j].
+## At the beginning, pred[i,j] is initialized to i if w[i,j] is
+## finite, or to -1 if it is infinite (this is a "sentinel value",
+## it signals that there is no known path between i and j). At each
+## iteration k, we update this pred[i,j] based on whether we accept
+## a new route through the new candidate node or not.
+
+
+import numpy as np
+
+test_w0 = np.array([
+        [   0.0,    9.0,    3.0, 1.0],
+        [  -0.5,    0.0,   -0.8, 0.1],
+        [   0.1,    3.3,    0.0, 2.2],
+        [np.inf, np.inf, np.inf, 0.0]
+        ])
+
+test_w1 = np.array([
+        [   0.0,   20.0,   10.0,   63.0,   72.0, np.inf],
+        [np.inf,    0.0,    0.0,   40.0, np.inf,   70.0],
+        [np.inf,    5.0,    0.0,   40.0,   34.0,  100.0],
+        [np.inf, np.inf,  -20.0,    0.0,   -5.0,   36.0],
+        [np.inf,  -31.0, np.inf,    5.0,    0.0,   80.0],
+        [np.inf, np.inf, np.inf, np.inf, np.inf,    0.0]
+        ])
+
+test_neg_cycle = np.array([[0, 1, -1], [2, 0, 2], [-5, 1, 0]], dtype=float)
+
+
+def floydwarshall(w):
+    if not (isinstance(w, np.ndarray) and w.ndim == 2 and w.shape[0] == w.shape[1] and w.dtype == float):
+        raise Exception("w must be a square 2-d array of floats")
+    n = w.shape[0]
+
+    ## TASK 1: make sure that the diagonal elements are all 0
+
+    ## BASE CASE
+    r = w.copy()
+
+    ## Use broadcasting to initialize pred
+    ## First, create a repeated matrix with a form like this:
+    #    +---------+
+    ##   | 0 0 0 0 |
+    ##   | 1 1 1 1 |
+    ##   | 2 2 2 2 |
+    ##   | 3 3 3 3 |
+    ##   +---------+
+    ## this is done by using arange(n), reshaping it like a column
+    ## and repeating it along the axis 1 (the columns)
+    ## Rows are sources and columns are destinations so pred is initialized
+    ## to sources for the corresponding destination - direct links.
+    pred = np.repeat(np.arange(n).reshape((n,1)), n, axis=1)
+
+    ## Then, substitute the values in the positions where the links
+    ## are missing. Find those positions with
+    ##   w == np.inf
+    ## this is a broadcased comparison (w is a matrix) and returns
+    ## a boolean mask. We can use that boolean mask in an indexing
+    ## expression to selectively update some elements.
+    pred[w == np.inf] = -1 # sentinel value
+
+    for k in range(n):
+        ## Use broadcasting to compute all the candidate new cost values.
+        ## This is summing a column-array with a row-array, which results
+        ## in a matrix.
+        ## We need the reshape because r[:,k] will give us a 1-d array which
+        ## but we want to make it a column.
+        ## There are as many k as the nodes in the graph (recall asking question
+        ## "would it be better to pass through that node?" for each node)
+        ## So we have a guarantee the shape will broadcast with r.
+        new_r = r[:,k].reshape((n,1)) + r[k,:] ## Reshaping the right column is key!
+        ## Remember - source vs destination, it must have the same logic as r.
+        ## Sources in rows and destinations in columns.
+        
+
+        ## Now we can select the values where the new candidate values are
+        ## better than the old ones. This comparison is between two matrices
+        ## so it returns a matrix of bools (a mask)
+        msk = new_r < r
+
+        ## With that, we can selectively update the matrix r with the new
+        ## values, only at the positions where there was an improvement
+        r[msk] = new_r[msk]
+        ## !!! Boolean masking - you cannot do r[msk]=new_r, simple assignment,
+        ## you have to apply mask to both terms
+
+        ## We need to update pred too. First, think of what would happen
+        ## if we did not have the condition. The old code for pred would look
+        ## like this:
+        ##   for i in range(n):
+        ##       for j in range(n):
+        ##           pred[i,j] = pred[k,j]
+        ## You can rewrite that code like this:
+        ##   for i in range(n):
+        ##       pred[i,:] = pred[k,:]
+        ## Now it's clear that this is substituting all the rows of pred with
+        ## the k-th row of pred.
+        ## So you can also compute that new matrix all at once by taking the
+        ## k-th row of pred and repeating it along the axis 0 (the rows)
+        ## If you experiment a little on the console, you'll see that you
+        ## can do it this way (the reshape is needed so that axis=0 is the rows,
+        ## otherwise in a 1-d array it would not work), it would be flattened.
+        new_pred = np.repeat(pred[k,:].reshape((1,n)), n, axis=0)
+        ## We need to specify reshape and axis for repeat to create a matrix.
+        ## Remember predecessor structure: it was initialized with the same
+        ## columns, pred of j in the path from i to j is in pred[i, j]
+        ## This time we want a row of new_pred
+
+        ## Finally, we can use the same trick that we used before and only
+        ## update pred at those locations where we also updated r
+        pred[msk] = new_pred[msk]
+
+        ## TASK 2:
+        ## Negative cycle detection: if a negative cycle exists, then at some
+        ## point there will be a negative cost in the diagonal of `r`. You should
+        ## be able to figure out why that is true. In such case, we need to raise
+        ## an exception.
+        diag=np.diag(r)
+        if (diag!=0).any():
+            diag_neg_ind=np.argmin(diag)
+            neg_cycle=[diag_neg_ind]
+        # index of the most negative negative cycle (if many exist)
+        # you could also find the index of the first negative cycle detectable
+        # on the diagonal, many methods
+            nxt_ind=pred[diag_neg_ind, diag_neg_ind] # if the negative cycle exists, also 
+            # the predecessor of the diagonal element is not itself
+            while nxt_ind!=diag_neg_ind:
+                neg_cycle.append(nxt_ind)
+                nxt_ind=pred[diag_neg_ind, nxt_ind] #!!!  pred[diag_neg_ind, nxt_ind]
+                # not pred[nxt_ind, nxt_ind], remember the presence of negative
+                # diagonal enty implies it is a part of the cycle so we will return 
+                # to it anyways which will end execution of while loop
+            neg_cycle.append(diag_neg_ind) #completing the cycle
+            # Equivalently, exploiting already defined method! Returned path will
+            # ofc include the starting point and the ending point: both inputs
+            # diag_neg_ind
+            neg_cycle_equivalent=get_optimal_path(pred, diag_neg_ind, diag_neg_ind)
+            neg_cycle.reverse()
+            assert neg_cycle_equivalent==neg_cycle # do not assert ...==neg_cycle.reverse(), clash in types
+            raise Exception(f"Negative cycle was detected: {neg_cycle} ({neg_cycle_equivalent})!")
+        ## EXTRA CHALLENGE: if a negative cycle is detected, figure out what it
+        ## is using reconstruct_path and print it in the exception message
+    return r, pred
+
+def get_optimal_path(pred, i, j):
+    z = pred[i,j]
+    if z == -1:
+        return []
+
+    ## TASK 3: Do the reconstruction in reverse, initializing path
+    ##         as just [j], and appending nodes at the end of the list.
+    ##         At the end, reverse the list in-place.
+    
+    path=[j]
+    while z!=i:
+        path.append(z)
+        z=pred[i, z]
+    path.append(i)
+    path.reverse()
+
+    path = [i, j]
+    while z != i:
+        path.insert(1, z)
+        z = pred[i,z]
+
+    return path
+
+def check_opt_path(w, r, pred):
+    # check shape of r, pred
+    n = r.shape[0]
+    for i in range(n):
+        for j in range(n):
+            path = get_optimal_path(pred, i, j)
+            if len(path) == 0:
+                assert r[i,j] == np.inf # opt cost must be inf
+            else:
+                assert len(path) >= 2
+                assert path[0] == i
+                assert path[-1] == j
+                c = 0.0
+                for k in range(1,len(path)):
+                    c += w[path[k-1], path[k]]
+                assert abs(c - r[i,j]) < 1e-12
+    print("all ok")
+
+
+
+def floydwarshall(w):
+    ## arg. checks. requirements
+    ##   w is a square 2-d array
+    ##   diagonal is 0
+
+    n = w.shape[0]
+
+    ## BASE CASE
+    r = w.copy()
+    pred = np.zeros((n,n), dtype=int)
+    for i in range(n):
+        for j in range(n):
+            if w[i,j] != np.inf:
+                pred[i,j] = i
+            else:
+                pred[i,j] = -1 # sentinel value -> missing link
+
+    ## FORWARD PASS
+    
+for k in range(n):
+  for i in range(n):
+      for j in range(n):
+          re_new=r[i, k]+r[k, j] #!!! directed graph so order matters!!!
+          #r[j, k] can differ from r[k, j]
+          if re_new<r[i, j]:
+              r[i, j]=re_new
+              pred[i, j]=pred[k, j] #not k!!! but pred[k, j], we have already computed
+              #distance [k, j] as it is a subproblem of path [i, j] as we 
+              #chose the ordering, we compute for indices i, j with increasing
+              #order so in path k, j there may or may not be
+              #a direct link so we cannot set pred[i, j]=k, but pred[i, j]=pred[k, j]

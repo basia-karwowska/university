@@ -1,0 +1,77 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# we now want to compare the population of trajectories with the evolution of the marginal probabilities
+# we need to build the probability vectors and the Q matrix, given the definition of the grid and the moves we are considering
+
+def display_walks(coord, n, coord_old=None):
+    
+    plt.pause(0.1)
+    plt.figure(1)
+    plt.clf()
+
+    x, y = coord[:,0], coord[:,1]
+    n_walkers = len(x)
+    # plots the positions of individual walkers
+    plt.plot(x, y, 'o', markersize=20, alpha=1/np.sqrt(n_walkers))
+    for i in range(n):
+        # plots the black grid which gives dimensions of our walking surface
+        plt.plot([0.,n-1], [i,i], c='black')
+        plt.plot([i,i], [0.,n-1], c='black')
+
+    if coord_old is not None:
+        x_old, y_old = coord_old[:,0], coord_old[:,1]
+        for i in range(n_walkers):
+            if abs(x_old[i]-x[i]) == n-1 or abs(y_old[i]-y[i]) == n-1: continue
+            plt.plot([x_old[i], x[i]], [y_old[i], y[i]], linewidth=3, c="blue")
+
+
+def display_prob(prob_marg, n):
+    plt.pause(0.0001)
+    plt.figure(2) # use a different figure for the probability
+    plt.clf()
+    plt.pcolormesh(prob_marg.reshape((n,n)), cmap="Greys")
+
+
+def random_walks(n, n_walkers=1, n_iters=100, display_iters=1, plot_tails=True, plot_prob=True): #optional argument to plot probabilties now
+    
+    moves = np.array([[1,0],[-1,0],[0,1],[0,-1]])
+    n_moves = moves.shape[0]
+    ps = np.array([1/6, 1/3, 1/3, 1/6]) 
+    coord = np.zeros((n_walkers,2), dtype=int)
+    coord[:,1].fill(n//2) 
+    coord[:,0].fill(n//2)
+    coord_old = coord.copy()
+   
+    prob_marg = np.zeros(n**2) 
+    prob_marg[n*(n//2)+n//2] = 1
+
+    # we construct the transition matrix of the stochastic process that describes the drunk guys trajectories
+    Q = np.zeros((n**2,n**2)) # the matrix connects each pair of available states
+    for k in range(n**2):
+        # we need to transform the linear indices in the coordinates in the matrix
+        i = k // n 
+        j = k % n 
+        for m, p  in zip(moves, ps): # for each move, starting from state k, we want to fill the corresponding element of Q with the correct probability
+            ii = (i + m[1]) % n # the y coordinate corresponds to the rows
+            jj = (j + m[0]) % n # the x coordinate corresponds to the columns
+            Q[n*ii + jj, k] += p # this is the matrix element we need to fill up, connecting state k to the one obtained by applying the move
+
+    print(f"Transition matrix is: {Q}")
+    for t in range(n_iters):
+        coord_old[:] = coord
+        coord += moves[np.random.choice(n_moves, n_walkers, p=ps)]
+        coord %= n
+        prob_marg[:] = Q @ prob_marg 
+        if t % display_iters==0:
+            if plot_tails:
+                display_walks(coord, n, coord_old=coord_old)
+                if plot_prob:
+                    display_prob(prob_marg, n) 
+            else:
+                display_walks(coord, n)
+                if plot_prob:
+                    display_prob(prob_marg, n)
+    print(f"Marginal probability is: {prob_marg}")
+
+

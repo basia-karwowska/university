@@ -1,0 +1,250 @@
+#%% BST
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+class Node():
+    def __init__(self, key, val=None, parent=None, left=None, right=None):
+        self.key = key
+        self.val = val # optional, it carries information, is not to be displayed
+        self.parent = parent
+        self.left = left
+        self.right = right
+    
+    def __repr__(self):
+        s = "Node(key={}".format(self.key)
+        if self.parent is not None:
+            s += " parent={}".format(self.parent.key)
+        if self.left is not None:
+            s += " left={}".format(self.left.key)
+        if self.right is not None:
+            s += " right={}".format(self.right.key)
+        return s + ")"
+        
+class BST():
+    def __init__(self):
+        self.root = None
+        self.size = 0
+        
+    def __repr__(self):
+        s = "BST tree with {} nodes".format(self.size)
+        return s
+    
+    def insert(self, node):
+        if not isinstance(node, Node):
+            raise Exception("Only Nodes can be added to BST")
+        
+        x = self.root
+        p = None # p will be the parent of x so that when x is None, we can
+        # add the new node as the child of p; p of the root is None, hence initialization
+        while x is not None:# iterate until we find an empty spot corresponding to None
+            p = x
+            if node.key < p.key:
+                x = p.left
+                # descend on the left
+            if node.key > p.key:
+                # descend on the right
+                x = p.right
+            if node.key == p.key:
+                raise Exception("cannot add Nodes with the same key")
+                
+        # p now is the correct parent for x
+        if p is None: # we have no root in the tree yet
+            self.root = node
+        elif node.key < p.key:
+            # set node as a left child of p
+            node.parent = p
+            p.left = node
+        elif node.key > p.key:
+            node.parent = p
+            p.right = node
+            
+        self.size += 1
+        return node
+    
+    def display(self, reset=True, color="blue"): # we display according to value
+    # of keys which become x-coordinates of the plotted graph and coordinates of layers
+    # from 0 to -n_layers+1
+        if reset: plt.clf()
+        layer = 0
+        prev_nodes = [self.root]
+        next_nodes = []
+        while len(prev_nodes) > 0: 
+            for node in prev_nodes:
+                if node.left is not None:
+                    next_nodes.append(node.left)
+                    plt.plot([node.key, node.left.key], [layer, layer-1], '-o', color=color)
+                if node.right is not None:
+                    next_nodes.append(node.right)
+                    plt.plot([node.key, node.right.key], [layer, layer-1], '-o', color=color)
+            prev_nodes = next_nodes
+            next_nodes = []
+            layer -= 1
+        return None
+        
+    def tree_search(self, key):
+        x = self.root
+        while (x is not None) and (x.key != key): 
+            if x.key < key:
+                x = x.right
+            elif x.key > key:
+                x = x.left
+        return x
+    
+    def __getitem__(self, key): # allows to use BST like a dictionary
+        node = self.tree_search(key)
+        if node is None:
+            raise Exception("key not found in this BST")
+        return node.val
+    
+    def __setitem__(self, key, val):
+        node = self.tree_search(key)
+        if node is None:
+            return self.insert(Node(key, val))
+        node.val = val
+        return node
+    
+    def max_subtree(self, node):
+        if not isinstance(node, Node):
+            raise Exception("need to pass a node")
+        x = node # we are looking for the max in the subtree rooted in node
+        while (x is not None) and (x.right is not None):
+            x = x.right
+        return x        
+        
+    def max(self):
+        return self.max_subtree(self.root)
+    
+    def min_subtree(self, node, args_check=False):
+        if args_check:
+            if not isinstance(node, Node):
+                raise Exception("need to pass a node")
+            # is the node in the tree  
+        x = node # we are looking for the max in the subtree rooted in node
+        while (x is not None) and (x.left is not None):
+            x = x.left
+        return x        
+        
+    def min(self):
+        return self.min_subtree(self.root)
+    
+    def inorder_print(self, node):
+        # node is the root of its sub-tree
+        # we assume that node is contained in the tree
+    
+        # print whatever is on the left
+        if node.left is not None:
+            self.inorder_print(node.left)
+        # print the node
+        print(node)
+        # print what is on the right
+        if node.right is not None:
+            self.inorder_print(node.right)    
+        pass
+    
+    def successor(self, node):
+        # node is the root of its sub-tree
+        # we assume that node is contained in the tree
+        
+        # CASE 1 : (node has a right child)
+        if node.right is not None:
+            return self.min_subtree(node.right)
+        
+        # CASE 2 : (node does not have a right child)
+        x = node
+        p = x.parent
+        while (p is not None) and (x == p.right): # we keep iterating until
+        # p is None or x==p.left so p is the first parent on the right
+            x = p
+            p = p.parent
+        
+        return p
+    
+    def predecessor(self, node):
+        # node is the root of its sub-tree
+        # we assume that node is contained in the tree
+        
+        # CASE 1 : (node has a left child)
+        if node.left is not None:
+            return self.max_subtree(node.left)
+        
+        # CASE 2 : (node does not have a right child)
+        x = node
+        p = x.parent
+        while (p is not None) and (x == p.left):
+            x = p
+            p = p.parent
+        
+        return p
+    
+    def transplant(self, old, new):
+        # old and new are two nodes, old is contained in the bst
+        if old == self.root:
+            self.root = new
+        else:
+            if new is not None: # this in both cases
+                new.parent = old.parent
+            # do one of the two:
+            if old.parent.right == old:
+                # old was a right child of its parent
+                old.parent.right = new
+            elif old.parent.left == old:
+                old.parent.left = new
+        # update the number of nodes (2 nodes or 1 if new is None)
+        return old
+    
+    def delete(self, z):
+        self.size -= 1
+        l = z.left
+        r = z.right
+        # CASE 1: z only has a left sub-tree (no right child)
+        if r is None:
+            return self.transplant(z, l)
+        # CASE 2: z only has a right sub-tree
+        if l is None:
+            return self.transplant(z, r)
+        
+        y = self.successor(z)
+        x = y.right
+        
+        if r == y: # CASE 3 
+            # the successor of z is its right child
+            
+            # trasplant r in place of z
+            self.transplant(z, r) # or y? equivalently?
+            # attach l on the left of r
+            l.parent = y
+            y.left = l
+        else: # CASE 4
+            # the successor of z is not its right child
+            
+            # intermediate step
+            # transplant the right child of y in its place
+            self.transplant(y, x)
+            # set y as the parent of r (on the left)
+            r.parent = y
+            y.right = r
+            
+            # final step 
+            # transpant y in place of z
+            self.transplant(z, y)
+            # attach l on the left of y
+            l.parent = y
+            y.left = l
+        return z
+        
+        
+                
+bst = BST()
+bst.insert(Node(5, "paul"))
+bst.insert(Node(4, "jane"))
+bst.insert(Node(9))
+bst.insert(Node(10))
+bst.insert(Node(2))
+bst.insert(Node(7))
+bst.insert(Node(8))
+bst.insert(Node(6))
+bst.display()
+bst.delete(bst.tree_search(5))
+bst.display(reset=False, color="orange")
+

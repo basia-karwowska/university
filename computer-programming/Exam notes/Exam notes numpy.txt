@@ -1,0 +1,74 @@
+a = np.int16(100)                # a signed 16-bit integer
+b = np.uint16(100)               # an unsigned 16-bit integer
+np.full(n, -1)
+np.all(a == b)
+np.array_equal(a, b)
+np.linalg.norm
+np.hstack((a1, a2))
+assert a1.base is a  # this is because `a1` is a view of `a` (slices produce views)
+a2 = a[(n//2-1)::-1]    # first half, reversed: since the step is negative
+                        #   we start from the middle
+a3 = a[:(n//2-1):-1]    # second half, reversed: since the step is negative
+                        #   we start from the end and stop in the middle
+                        
+a4 = a[n-2+n%2::-2] # even-indexed values, in reverse. We need to start from the last even index!
+a5 = a[n-1-n%2::-2] # odd-indexed values, in reverse. We need to start from the last odd index!
+
+A[::-1] #reverting an array
+#indexing using list: the outer brackets are for indexing, the inner brackets create a list!
+#no views for list indexing
+
+#a1.base is None  # ...because `a1` is *not* a view of `a`
+
+s = np.random.rand(n) # `n` random values uniformly distrivuted in [0,1)
+mask = s < r          # broadcasting happens here; the result is a mask
+# vectors of bools with probability r of true
+a1 = a[mask]
+#If you then use this mask to index another vector
+#   of the same length, the effect is that each element will be chosen
+#   with probability `r`
+
+# array that excludes the endpoint
+a = np.arange(0.0, 2 * np.pi, 2 * np.pi / n)
+# array that includes the endpoint
+b = np.linspace(0.0, 2 * np.pi, n)
+
+plt.xlabel('radians')
+plt.savefig("sincos.png", dpi=300)
+
+import time
+t0 = time.time()
+#function_call
+t1 = time.time()
+print("python:", t1 - t0)
+
+plt.hist(m2, bins=bins, density=True, histtype='step')
+plt.hist(m1, bins=bins, density=True, histtype='step')
+
+a.ravel()
+#np.hstack(l), np.vstack()
+
+#np.arange(5) + np.arange(n).reshape(n,1) or
+#np.arange(5) + np.arange(n)[:,np.newaxis]
+
+## If you want to return a list of indices instead of a bool mask:
+# return np.arange(n)[a]
+#np.flatnonzero(a)
+#np.argwhere(a).ravel()
+because in a bool array the max
+##   is always `True` and argmax returns the first occurrence of the max.
+logical operations (The symbol `|` denotes an `or`
+# operation; the symbol `&` an `and` operation, the symbol `~` a `not`
+# operation).
+
+imshow()
+
+plt.errorbar(ndim,nmeans,yerr=nstds)
+plt.axhline(y=np.pi, linestyle='--')
+
+inside_mask = pxs**2 + pys**2 <= 1 
+ninside = inside_mask.sum() 
+plt.plot(pxs[inside_mask], pys[inside_mask], '.', color='r')
+plt.plot(pxs[np.logical_not(inside_mask)], pys[np.logical_not(inside_mask)], '.', color='b')
+
+np.random.shuffle(v)

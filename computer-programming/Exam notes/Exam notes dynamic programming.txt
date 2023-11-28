@@ -1,0 +1,687 @@
+import numpy as np
+
+#%% ROD CUTTING
+
+def test_opt_r(f, p, opt_r):
+    r = f(p)
+    assert abs(r - opt_r) < 1e-12
+    print("test_opt_r ok")
+
+def test_opt_rcuts(f, p, opt_r, opt_cuts):
+    r, cuts = f(p)
+    assert abs(r - opt_r) < 1e-12
+    assert sorted(cuts) == sorted(opt_cuts)
+    print("test_opt_rcuts ok")
+
+
+count = [0] # we create a list, not int because list is mutable
+def opt_cut_rec1(p):
+    if not (isinstance(p, np.ndarray) and p.ndim == 1):
+        raise Exception("p must be a 1-d array")
+        
+    j = len(p)
+
+    ## BASE CASE
+    if j == 0:
+        return 0.0
+
+    count[0] += 1 # only used for counting the number of function calls
+    r_best = -np.inf  
+    for i in range(1, j+1):
+        r1 = p[i-1] + opt_cut_rec1(p[:(j-i)])
+        if r1 >= r_best: 
+            r_best = r1
+
+    # for i in range(j):
+    #     r1 = p[i] + opt_cut_rec1(p[:(j-i-1)])
+    #     if r1 >= r_best:
+    #         r_best = r1
+
+    return r_best
+
+
+## recursive version with memoization, only revenue
+
+def opt_cut_rec1_memo(p, memo = None):
+    if not (isinstance(p, np.ndarray) and p.ndim == 1):
+        raise Exception("p must be a 1-d array")
+
+    j = len(p)
+
+    ## BASE CASE
+    if j == 0:
+        return 0.0
+
+    if memo is None:
+        memo = {}
+
+    count[0] += 1
+
+    r_best = -np.inf
+    ## Let's follow the mathematical notation and have 1 <= i <= j
+    for i in range(1, j+1):
+        k = j - i
+        if k in memo:    # did we solve the case of length k already?
+            rr = memo[k] # then fetch it from memory
+        else:            # otherwise actually perform the computation
+            rr = opt_cut_rec1_memo(p[:(j-i)], memo) # here memo is not None, but memo
+            # we may use current memo with results of sub-sub-problems while
+            # looking for the solution to this sub-problem
+            memo[k] = rr
+        r1 = p[i-1] + rr
+
+        if r1 >= r_best:
+            r_best = r1
+    return r_best
+
+
+## recursive version with memoization, both revenue and cuts
+def opt_cut_rec2_memo(p, memo = None):
+    if not (isinstance(p, np.ndarray) and p.ndim == 1):
+        raise Exception("p must be a 1-d array")
+
+    j = len(p)
+
+    ## BASE CASE
+    ## notice that we return an empty list now too, for consistency
+    if j == 0:
+        return 0.0, []
+
+    if memo is None:
+        memo = {}
+
+    r_best = -np.inf
+    ## initialize the output list besides r_best
+    cuts = []
+
+    for i in range(1, j+1):
+        k = j - i
+        ## Don't mix cuts with rcuts here! cuts is the one we are building
+        ## rcuts is the one that comes from the recursive call! To subproblems
+        if k in memo:
+            rr, rcuts = memo[k]
+        else:
+            rr, rcuts = opt_cut_rec2_memo(p[:(j-i)], memo)
+            memo[k] = rr, rcuts
+
+        r1 = p[i-1] + rr
+
+        if r1 >= r_best:
+            r_best = r1 
+            #CUTS CORRESPONDING TO r1=p[i-1]+rr being r_best
+            cuts = [i] + rcuts ##!!!
+
+    ## If everything works as it should, the cuts should make up the whole starting rod!
+    ## (this is a debug statement, like all assertions)
+    assert sum(cuts) == j
+
+    ## Return a tuple!
+    return r_best, cuts
+
+
+
+## bottom-up dynamic programming version
+## at first only write the revenue computation (forward pass)
+## then also return cuts (backward pass)
+def opt_cut(p):
+    if not (isinstance(p, np.ndarray) and p.ndim == 1):
+        raise Exception("p must be a 1-d array")
+
+    n = len(p)
+    r = np.zeros(n+1) # preallocate an array of length n+1
+                      # this will hold the solution to our sub-problems
+    whence = np.zeros(n+1, dtype=int) # array of *ints* of length n+1
+                                      # will hold the argmax that allows us to reconstruct
+                                      # the best cuts
+
+    ## FORWARD PASS
+
+    # r[0] = 0 # base case...
+    # whence[0] = -10000 # (sentinel value, also not really necessary...)
+
+    for j in range(1, n+1): 
+    
+        r_best = -np.inf  # set to the least possible value
+        i_best = -1 # the initial value doesn't matter
+        #note that p[0] gives price of a rod of length 1, while p[j-1] of length j
+        #while r[0] gives revenue associated with length 0 and r[j-1] with length j-1
+        for i in range(1, j+1):
+            r1 = p[i-1] + r[j-i] # use r[j-i] instead of opt_cut_rec1(p[:(j-i)])
+            if r1 >= r_best: 
+                r_best = r1
+                i_best = i # best first split i for a given j to get the optimal
+                # revenue for that j
+        r[j] = r_best # store the max into r
+        whence[j] = i_best # store the argmx into whence
+
+    ## at the end of the forward pass the last element of r
+    ## has the solution because it's r[n]
+
+    ## BACKWARD PASS: reconstruct the best cuts
+    
+    cuts = [] 
+    j = n     
+    while j > 0: # or j != 0
+        i = whence[j]  # length of best cut for a rod or length j
+        cuts.append(i) # add that to the cuts list
+        j -= i         # update j: go to the problem of size j-i
+
+    ## debugging statement: check that we have found a valid solution
+    assert sum(cuts) == n
+
+    return r[-1], cuts
+
+
+#%% SEAM CARVING
+
+## Some test cases
+
+img_test = np.array([
+    [1.0, 2.0, 1.0, 1.0],
+    [2.0, 0.0, 0.0, 3.0],
+    [1.0, 1.0, 2.0, 0.0],
+    [2.0, 2.0, 0.5, 1.0],
+    [2.0, 1.0, 1.0, 0.0]
+    ])
+
+g_test = np.array([
+    [1.0, 1.0 , 0.5,  0.0],
+    [2.0, 1.0 , 1.5,  3.0],
+    [0.0, 0.5 , 1.5,  2.0],
+    [0.0, 0.75, 1.0,  0.5],
+    [1.0, 0.5 , 0.5,  1.0]
+    ])
+
+seam_test = np.array([2, 1, 0, 0, 1])
+
+img_reduced_test = np.array([
+    [1.0, 2.0, 1.0],
+    [2.0, 0.0, 3.0],
+    [1.0, 2.0, 0.0],
+    [2.0, 0.5, 1.0],
+    [2.0, 1.0, 0.0]
+    ])
+
+
+## Gradient function
+def xgrad(img):
+    if not isinstance(img, np.ndarray) or img.ndim != 2:
+        raise Exception("input must be a 2-d array")
+    n, m = img.shape
+    if m < 2:
+        raise Exception("input width must be at least 2")
+
+    ## version 1
+    # g = np.zeros((n, m))
+    # for i in range(n):
+    #     g[i, 0] = np.abs(img[i, 0] - img[i, 1])
+    #     for j in range(1, m-1):
+    #         gl = np.abs(img[i, j-1] - img[i, j])
+    #         gr = np.abs(img[i, j] - img[i, j+1])
+    #         g[i, j] = (gl + gr) / 2
+    #     g[i, m-1] = np.abs(img[i, m-2] - img[i, m-1])
+
+    ## version 2 (this would work even for m < 2...)
+    # g = np.zeros((n, m))
+    # for i in range(n):
+    #     for j in range(m):
+    #         gl = np.abs(img[i, j] - img[i, j-1]) if j > 0 else 0.0
+    #         gr = np.abs(img[i, j] - img[i, j+1]) if j < m-1 else 0.0
+    #         f = 2.0 if 0 < j < m-1 else 1.0
+    #         g[i, j] = (gl + gr) / f
+
+    ## version 3 (no loops)
+    g = np.zeros((n, m))
+    g[:,0] = np.abs(img[:,0] - img[:,1])
+    g[:,-1] = np.abs(img[:,-1] - img[:,-2])
+    g[:,1:-1] = (np.abs(img[:,1:-1] - img[:,0:-2]) + np.abs(img[:,1:-1] - img[:,2:])) / 2
+
+    return g
+
+## The dynamic programming function that computes the best seam
+def get_seam(g):
+    # should return the optimal seam as an array of column indices,
+    # with the same length as the number of rows in the image
+    if not isinstance(g, np.ndarray) or g.ndim != 2:
+        raise Exception("input must be a 2-d array")
+    n, m = g.shape
+
+    c = np.zeros((n,m))
+    whence = np.zeros((n,m), dtype=int)
+
+    ## BASE CASE
+    c[0,:] = g[0,:]
+    whence[0,:] = 10000 # arbitrary value (sentinel)
+
+    ## FORWARD PASS
+    for i in range(1, n): # start from row 1 (0 is the base case)
+        for j in range(m):
+            ## look at the previous row (with special cases if we're at an edge)
+            c_l = c[i-1,j-1] if j != 0 else np.inf    # left
+            c_t = c[i-1,j]                            # top
+            c_r = c[i-1,j+1] if j != m-1 else np.inf  # right
+            ## compute the minimum
+            c_m = min(c_l, c_t, c_r)
+
+            ## with the min we can compute the optimal cost at i,j
+            c[i,j] = g[i,j] + c_m
+
+            ## compute the "argmin", encoded as {-1,0,1}
+            if c_m == c_l:
+                w = -1
+            elif c_m == c_t:
+                w = 0
+            else: # cm_ == c_r
+                w = 1
+
+            ## store the decision
+            whence[i,j] = w
+
+    ## BACKWARD PASS
+
+    ## the starting point of the backtracking is the column
+    ## where the last row of c has a minimum
+    js = np.argmin(c[-1,:])
+
+    ## OPTIMAL COST (not needed for this particular code)
+    # c_opt = c[-1,js]
+
+    ## we know that the seam is a vector of integers of length n
+    seam = np.zeros(n, dtype=int)
+
+    for i in range(n-1, -1, -1):
+        seam[i] = js      # store the seam at row i
+        w = whence[i,js]  # look up where to go (left, top, right)
+        js += w           # move the column index by -1,0,1 in preparation for the next iteration in the loop
+
+    ## DONE
+    return seam
+
+## Test for the get_seam function
+def test_get_seam(g = g_test, exp_seam = seam_test):
+    seam = get_seam(g)
+    assert np.array_equal(seam, exp_seam)
+    print("get_seam ok")
+
+## This runs the seam test
+test_get_seam()
+
+def carve(img, seam):
+    if not isinstance(img, np.ndarray) or img.ndim != 2:
+        raise Exception("img input must be a 2-d array")
+    if not isinstance(seam, np.ndarray) or seam.ndim != 1:
+        raise Exception("seam input must be a 1-d array")
+    n, m = img.shape
+
+    if len(seam) != n:
+        raise Exception("seam length must match img rows")
+
+    ## version 1
+    # new_img = np.zeros((n, m-1))
+    # for i in range(n):
+    #     js = seam[i]
+    #     for j in range(js):
+    #         new_img[i,j] = img[i,j]
+    #     for j in range(js,m-1):
+    #         new_img[i,j] = img[i,j+1]
+
+    ## version 2 (no j loop - there are actually many ways to do it)
+    new_img = np.zeros((n, m-1))
+    for i in range(n):
+        js = seam[i]
+        new_img[i,:js] = img[i,:js]
+        new_img[i,js:] = img[i,(js+1):]
+
+    return new_img
+
+## Test for the carve function
+def test_carve(img = img_test, seam = seam_test, exp_img_reduced = img_reduced_test):
+    img_reduced = carve(img, seam)
+    assert np.array_equal(img_reduced, exp_img_reduced)
+    print("carve ok")
+
+## This runs the carve test
+test_carve()
+
+
+
+## putting all of it together
+def seam_carve(img):
+    g = xgrad(img)
+    seam = get_seam(g)
+    img_reduced = carve(img, seam)
+    return img_reduced
+
+## Test the seam carve function
+def test_seam_carve(img = img_test, exp_img_reduced = img_reduced_test):
+    img_reduced = seam_carve(img)
+    assert np.array_equal(img_reduced, exp_img_reduced)
+    print("seam_carve ok")
+
+## This runs the seam_carve test
+test_seam_carve()
+
+#%% MAX SUBSEQUENCE PROBLEM: DIVIDE AND CONQUER
+
+# The maximum subsequence problem finds a contiguous subsequence 
+# of the largest sum of a sequence of n numbers. Thus we need to 
+# find both the maximum sum and the extremes of the max subarray.
+
+def max_subsequence_extensive(a): # O(n**2)
+    n = len(a)
+    positive = (a > 0).sum()
+    if positive == n:
+        return a.sum(), (0, n-1)
+    if positive == 0 or n == 0:
+        return 0.0, (-1,-1)
+    
+    ind = (-1,-1)    
+    max_sum = -np.inf
+    for i in range(n):
+        cumul_fromi = np.cumsum(a[i:])
+        j = np.argmax(cumul_fromi)
+        max_fromi = cumul_fromi[j]
+        if max_fromi > max_sum:
+            max_sum = max_fromi
+            ind = (i, i+j)
+        if max_fromi == max_sum and (j < (ind[1]-ind[0])): 
+            # I have to add this case because a shorter subsequence with the same sum could be found
+            ind = (i, i+j)
+    return max_sum, ind
+
+def max_subsequence_DnC(a): # O(n * log(n))
+    # Divide and Conquer (DnC) APPROACH:
+    # The idea is similar to dynamic programming, but slightly simpler.
+    # We want to solve the problem through a recursion. 
+    # - Given an array I split it in two halves
+    # - Now there are 3 scenarios:
+    # 1) the optimal subarray is in the left part
+    # 2) the optimal subarray is in the right part
+    # 3) the optimal subarray runs across the mid point, where we have split the initial array
+    # Now, in scenarios 1) and 2) I can simply call again the same function on the left and right parts, so I will have a recursive call
+    # For computing the subarray of scenario 3) I can just start from the mid point and look at the cumulative sums 
+    # going from mid to right, and from mid to left. The two argmax will tell me how far left and right from the midpoints
+    # I should pick the extremes of the optimal crossing sub-array.
+    # At this point we just compare 1),2),3) find the best, and return it.
+    # We need no memoization here, since in devide and conquer the sub-problems are not shared, so we never encounter them again.
+    
+    n = len(a)
+    mid = n // 2
+    
+    positive = (a > 0).sum()
+    if positive == n:
+        return a.sum(), (0, n-1) # I am still giving the extremes of the subsequence as an output (not the subarray) 
+    if positive == 0:
+        return 0.0, (-1,-1)
+    
+    left_max, left_ind = max_subsequence_DnC(a[:mid])
+    right_max, right_ind_unshifted = max_subsequence_DnC(a[mid:])
+    right_ind = (right_ind_unshifted[0]+mid, right_ind_unshifted[1]+mid) 
+    # we have to shift both indices here, since we are looking at the second half of the array
+
+    rcumul = np.cumsum(a[mid:])
+    a_max_rcumul = np.argmax(rcumul)
+    max_rcumul = rcumul[a_max_rcumul]
+    cross_r_ind = mid + a_max_rcumul
+    
+    lcumul = np.cumsum(a[mid-1::-1])
+    a_max_lcumul = np.argmax(lcumul)
+    max_lcumul = lcumul[a_max_lcumul]
+    cross_l_ind = mid-1 - a_max_lcumul
+           
+    cross_max = max_lcumul + max_rcumul
+    cross_ind = (cross_l_ind, cross_r_ind)
+    
+    # we have to rewrite the check of which of the 3 options is best if we also 
+    # want to make sure we take the shortest subsequence
+    best_m, best_ind = -np.inf, (-1,-1)
+    for (m, ind) in zip([left_max, right_max, cross_max], [left_ind, right_ind, cross_ind]):
+        if m > best_m:
+            best_m = m
+            best_ind = ind
+        if m == best_m and ((ind[1]-ind[0]) < (best_ind[1]-best_ind[0])):
+            best_m = m
+            best_ind = ind
+    return best_m, best_ind
+            
+def max_subsequence_linear(a): # O(n)
+    # This is an even better solution, proposed by a student (but actually called Kadane’s Algorithm)
+    # The idea is that you can start from one side of the array and just look at the elements once:
+    # 1) keep a running sum of the elements you have encountered so far
+    # 2) whenever this sum exceeds the best sum, overwrite the best sum and save the extremes for this subsequence
+    # 3) whenever the sum becomes negative you can just cut away the array up to that point and keep 
+    #    looking at what is left on the right as if it was a different array. The idea is that there
+    #    is no way that starting before can give you a better result (since any sum that reaches that 
+    #    point will be negative). Thus, you have to reset your running sum, and set the left extremum 
+    #    of the new potential sequences to the next index in the array.
+    
+    # BASE CASES
+    n = len(a)
+    positive = (a > 0).sum()
+    if positive == n:
+        return a.sum(), (0, n-1)
+    if positive == 0 or n == 0:
+        return 0.0, (-1,-1)
+    
+    max_sum = -np.inf # best sum
+    best_ind = (-1,-1) # container for the actual best extremes (tuple of ints)
+
+    current_s = 0.0 # running sum
+    left_i = 0 # left extreme of the subarray associated with the running sum 
+    
+    for i in range(n): # we are going from left to right, just once
+        current_s += a[i] # keep increasing the running sum as we see the new elements
+        if current_s > max_sum: # we found a better subsequence
+            max_sum = current_s # save the sum
+            best_ind = (left_i, i) # and the indices
+        elif current_s == max_sum and ((i-left_i) < (best_ind[1]-best_ind[0])): # again, we prefer shorter subsequences
+            max_sum = current_s # save the sum
+            best_ind = (left_i, i) # and the indices
+        elif current_s <= 0: # if the sum goes below zero we have to reset the running sum
+            current_s = 0.0 # set it back to zero
+            left_i = i+1 # we are going to restart from the next index in the array
+            
+    return max_sum, best_ind
+            
+def check_equivalence(n=10000, l_lim=-4, r_lim=4):
+    a = np.random.choice(np.arange(l_lim,r_lim+1), n)
+    m1, ind1 = max_subsequence_extensive(a)
+    m2, ind2 = max_subsequence_DnC(a)
+    m3, ind3 = max_subsequence_linear(a)
+    assert m1 == m2 == m3
+    if not (ind1 == ind2 == ind3):
+        print(ind1, " ", m1)
+        print(ind2, " ", m2)
+        print(ind3, " ", m3)
+        raise Exception("found different sub-sequences!")
+    print("OK!")
+
+
+
+#%% GRAPH INDICES CONVERSIONS
+def ind2layer(g, i):
+    if not 0 <= i < num_nodes(g):
+        raise Exception("out-of-bounds index i")
+    l, j = 0, i 
+    while l < len(g) and j >= g[l].shape[0]:
+        j -= g[l].shape[0]
+        l += 1
+    if l == len(g): 
+        assert j == 0
+    return l, j
+
+## 2-indices form -> 1-index form
+def layer2ind(g, l, j):
+    if not 0 <= l <= len(g):
+        raise Exception("invalid layer index l")
+    if l == len(g):
+        if j != 0:
+            raise Exception("invalid node index j")
+        return num_nodes(g) - 1
+    if not 0 <= j < g[l].shape[0]: 
+        raise Exception("invalid node index j")
+    i = sum([g[k].shape[0] for k in range(l)]) + j
+    return i
+
+
+
+
+
+
+
+
+#%%  SUBSET BETTER
+
+## The dynamic programming function that determines whether
+## there exists a subset of the elements of `v` that sums up to `s`,
+## and returns the subset's indices if there is (or None if there isn't).
+def get_subset(v, s):
+    ## Argument checks
+    if not isinstance(v, np.ndarray) or v.ndim != 1:
+        raise Exception("input v must be a 1-d array")
+    if not (v > 0).all():
+        raise Exception("all elements of v must be strictly positive")
+    if not isinstance(s, int) or s < 0:
+        raise Exception("input s must be a non-negative integer")
+
+    n = len(v)
+
+    ## The auxiliary structure that we need for the dyn.progr. algorithm.
+    ## For each value of ss, with 0 <= ss <= s
+    ##
+    ##   w[ss] will tell us "what is the minimum j such that is there a subset
+    ##                       of `v[0:j]` that sums up to `ss`?"
+    ##
+    ##   if no valid j exists, we set it to n+1 by convention (a sentinel value)
+
+    w = (n+1) * np.ones(s+1, dtype=int) # initialized to n+1 (sentinel value)
+
+    w[0] = 0 # if the sum is 0, we can always choose the empty set
+
+    cv = v.cumsum() # cv[j] is the maximum sum that can ve achieved with `v[0:j+1]`
+                    # therefore if we are trying to achieve some value `ss` we don't
+                    # need to bother checking those `j`s for which `cv[j] < ss`.
+    j0 = 0          # `j0` will be the "minimum viable j", the first one for
+                    # which `cv[j] >= ss`.
+                    # Note that this obviously increases as `ss` increases.
+
+    ## The main dyn.progr. loop
+    for ss in range(1, s+1):           # iterate over the values of the partial sums
+        while j0 < n and cv[j0] < ss:  # update the minimum viable candidate for j
+            j0 += 1
+        for j in range(j0, n):         # iterate over the elements of v
+            rest = ss - v[j]           # consider v[j] and how much more we need to reach the sub-sum `ss`
+            if rest >= 0 and w[rest] <= j:  # if `rest` can be achieved with `j` elements or fewer...
+                w[ss] = j+1                 # ...then `ss` can be achieved with `j+1` elements or more...
+                break                       # ...and we need to look no further
+
+    ## if w[s] is set to the sentinel value, then we're done and we just return None
+    if w[s] == n+1:
+        return None
+
+    ## If a valid subset exists, we trace it back our by reconstructing
+    ## the indices of the original vector that we need to take
+    inds = []
+    ss = s
+
+    while w[ss] != 0:   # keep going until we get an empty set
+        j = w[ss]-1     # get the element's index
+        ss -= v[j]      # reduce the sum by that element's value
+        inds.append(j)  # store the index
+
+    inds.reverse()             # reverse the indices so that they are sorted
+                               # (not strictly necessary, but nicer)
+
+    ## debug code: we can make sure that we have made no mistakes
+    assert ss == 0
+    assert v[inds].sum() == s
+
+    ## finally we return the indices
+    return inds
+
+
+#OR you could have: def sortperm(v):
+    return np.array(sorted(range(len(v)), key = lambda j: v[j]), dtype=int)
+
+
+ p = sortperm(v) 
+ sv = v[p]    
+ 
+ cv = sv.cumsum()
+ 
+ if rest < 0:               # since `sv` is sorted, when the elements get too big...
+     break                
+ if w[rest] <= j:           
+     w[ss] = j+1            
+     break        
+ 
+#in while loop: ss -= sv[j] 
+# inds = sorted(p[inds])
+
+
+
+
+def get_subset(v, s):
+    ## Argument checks
+
+
+    n = len(v)
+
+    p = sortperm(v) # find the permutation of the indices that sorts `v`
+                    # (we need to keep this for later)
+    sv = v[p]       # this is basically the same as `sorted(v)`
+                    # we work on this sorted version of `v` because it allows us
+                    # to spare some computations (a lot of computations, possibly)
+
+
+    w = (n+1) * np.ones(s+1, dtype=int) # initialized to n+1 (sentinel value)
+
+    w[0] = 0 # if the sum is 0, we can always choose the empty set
+
+    cv = sv.cumsum() # cv[j] is the maximum sum that can ve achieved with `sv[0:j+1]`
+                     # therefore if we are trying to achieve some value `ss` we don't
+                     # need to bother checking those `j`s for which `cv[j] < ss`.
+    j0 = 0           # `j0` will be the "minimum viable j", the first one for
+                     # which `cv[j] >= ss`.
+                     # Note that this obviously increases as `ss` increases.
+
+    ## The main dyn.progr. loop
+    for ss in range(1, s+1):           # iterate over the values of the partial sums
+        while j0 < n and cv[j0] < ss:  # update the minimum viable candidate for j
+            j0 += 1
+        for j in range(j0, n):         # iterate over the elements of sv
+            rest = ss - sv[j]          # consider sv[j] and how much more we need to reach the sub-sum `ss`
+            if rest < 0:               # since `sv` is sorted, when the elements get too big...
+                break                  # ...we can just skip the remaining ones
+            if w[rest] <= j:           # if `rest` can be achieved with `j` elements or fewer...
+                w[ss] = j+1            # ...then `ss` can be achieved with `j+1` elements or more...
+                break                  # ...and we need to look no further
+
+    ## if w[s] is set to the sentinel value, then we're done and we just return None
+    if w[s] == n+1:
+        return None
+
+    ## If a valid subset exists, we trace it back our by reconstructing
+    ## the indices of the original vector that we need to take
+    inds = []
+    ss = s
+
+    while w[ss] != 0:   # keep going until we get an empty set
+        j = w[ss]-1     # get the element's index
+        ss -= sv[j]      # reduce the sum by that element's value
+        inds.append(j)  # store the index
+
+    ## debug code: we can make sure that we have made no mistakes
+    assert ss == 0
+    assert sv[inds].sum() == s
+
+    ## recover the indices of the original (unsorted) vector, by going through the
+    ## permutation array `p` that we had saved at the beginning.
+    ## (the call to `sorted` is not strictly necessary, it just makes the result nicer)
+    inds = sorted(p[inds])
+    assert v[inds].sum() == s
+
+    ## finally we return the indices
+    return inds
+
+          

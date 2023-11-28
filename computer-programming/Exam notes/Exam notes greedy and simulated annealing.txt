@@ -1,0 +1,235 @@
+# -*- coding: utf-8 -*-
+import numpy as np
+#%% SIMULATED ANNEALING
+
+## Stochastically determine whether to acccept a move according to the
+## Metropolis rule (valid for symmetric proposals)
+def accept(delta_c, beta):
+    ## If the cost doesn't increase, we always accept
+    if delta_c <= 0:
+        return True
+    ## If the cost increases and beta is infinite, we always reject
+    if beta == np.inf:
+        return False
+    ## Otherwise the probability is going to be somwhere between 0 and 1
+    p = np.exp(-beta * delta_c)
+    ## Returns True with probability p
+    return np.random.rand() < p
+
+## The simulated annealing generic solver.
+## Assumes that the proposals are symmetric.
+## The `probl` object must implement these methods:
+##    init_config()               # returns None [changes internal config]
+##    cost()                      # returns a real number
+##    propose_move()              # returns a (problem-dependent) move - must be symmetric!
+##    compute_delta_cost(move)    # returns a real number
+##    accept_move(move)           # returns None [changes internal config]
+##    copy()                      # returns a new, independent object
+## NOTE: The default beta0 and beta1 are arbitrary.
+def simann(probl,
+           anneal_steps = 10, mcmc_steps = 100,
+           beta0 = 0.1, beta1 = 10.0,
+           seed = None, debug_delta_cost = False):
+    ## Optionally set up the random number generator state
+    if seed is not None:
+        np.random.seed(seed)
+
+    # Set up the list of betas.
+    # First allocate an array with the required number of steps
+    beta_list = np.zeros(anneal_steps)
+    # All but the last one are evenly spaced between beta0 and beta1 (included)
+    beta_list[:-1] = np.linspace(beta0, beta1, anneal_steps - 1)
+    # The last one is set to infinty
+    beta_list[-1] = np.inf
+
+    # Set up the initial configuration, compute and print the initial cost
+    probl.init_config()
+    c = probl.cost()
+    print(f"initial cost = {c}")
+
+    ## Keep the best cost seen so far, and its associated configuration.
+    best = probl.copy()
+    best_c = c
+
+    # Main loop of the annaling: Loop over the betas
+    for beta in beta_list:
+        ## At each beta, we want to record the acceptance rate, so we need a
+        ## counter for the number of accepted moves
+        accepted = 0
+        # For each beta, perform a number of MCMC steps
+        for t in range(mcmc_steps):
+            move = probl.propose_move()
+            delta_c = probl.compute_delta_cost(move)
+            ## Optional (expensive) check that `compute_delta_cost` works
+            if debug_delta_cost:
+                probl_copy = probl.copy()
+                probl_copy.accept_move(move)
+                assert abs(c + delta_c - probl_copy.cost()) < 1e-10
+            ## Metropolis rule
+            if accept(delta_c, beta):
+                probl.accept_move(move)
+                c += delta_c
+                accepted += 1
+                if c <= best_c:
+                    best_c = c
+                    best = probl.copy()
+        print(f"acc.rate={accepted/mcmc_steps} beta={beta} c={c} [best={best_c}]")
+
+    ## Return the best instance
+    print(f"final cost = {best_c}")
+    return best
+
+
+#%% GREEDY
+# INTERFACE
+# greedy can be applied to any problem where we defined:
+#   init_config
+#   display
+#   cost
+#   delta_cost
+#   propose_move
+#   accept_move
+def greedy(probl, num_iters=1, num_restarts=1, seed=None):
+    if seed is not None: rnd.seed(seed)
+
+    best_probl = None
+    best_c = np.inf
+
+    for i in range(num_restarts):
+        print()
+        print(f"trial {i+1}")
+        probl.init_config()
+        c = probl.cost()
+        print(f"intial cost = {c}")
+        for t in range(num_iters):
+            move = probl.propose_move()
+            delta_c = probl.delta_cost(move)
+            if delta_c <= 0:
+                probl.accept_move(move)
+                c += delta_c
+                print(f"t={t} -> new cost = {c}")
+        print(f"final cost = {c}")
+        probl.display()
+        if c < best_c:
+            best_c = c
+            best_probl = probl.copy()
+
+    print(f"best score = {best_c}")
+    best_probl.display()
+
+    return best_probl
+
+#Greedygreedy
+for t in range(num_iters):
+    best_delta_c = np.inf
+    best_move = None
+    for move in probl.all_moves():
+        delta_c = probl.delta_cost(move)
+        if delta_c < best_delta_c:
+            best_delta_c = delta_c
+            best_move = move
+        if best_delta_c < 0:
+            probl.accept_move(best_move)
+            c += best_delta_c
+            print(f"t={t} -> new cost = {c}")
+        else:
+            break
+
+
+#%% TSP
+import numpy as np
+import numpy.random as rnd
+import matplotlib.pyplot as plt
+from copy import deepcopy, copy
+
+#DEBUG??
+class TSP:
+    def __init__(self, n, seed=None):
+        if not (isinstance(n, int) and (n>4)):
+            raise Exception("n needs to be an int > 4!")
+        if seed is not None: rnd.seed(seed)
+        x = rnd.rand(n)
+        y = rnd.rand(n)
+        self.x, self.y = x, y
+        self.n = n
+        self.route = np.zeros(n, dtype=int)
+        self.init_config()
+
+        xT = x.reshape((n,1))
+        yT = y.reshape((n,1))
+        self.dist = np.sqrt((x - xT)**2 + (y - yT)**2)
+
+    def dist(self, city1, city2):
+        x, y = self.x, self.y
+        x1, y1 = x[city1], y[city1]
+        x2, y2 = x[city2], y[city2]
+        return np.sqrt((x1-x2)**2 + (y1-y2)**2)
+
+    def init_config(self):
+        n = self.n
+        self.route[:] = rnd.permutation(n)
+
+    def display(self):
+        x, y, n, route = self.x, self.y, self.n, self.route
+        plt.clf()
+        plt.plot(x, y, 'o', color="black")
+        plt.plot(x[route], y[route], color='orange')
+        comeback = [route[n-1], route[0]]
+        plt.plot(x[comeback], y[comeback], color='orange')
+        plt.pause(0.001)
+
+    def propose_move(self):
+        n = self.n
+        while True:
+            e1 = rnd.randint(n)
+            e2 = rnd.randint(n)
+            if e2 < e1: e1, e2 = e2, e1
+            if (e2 != e1 and e2 != e1+1 and (e2+1) % n != e1): break
+        move = (e1, e2)
+        return move
+
+    def accept_move(self, move):
+        route = self.route
+        e1, e2 = move
+        route[e1+1:e2+1] = route[e2:e1:-1]
+
+    def cost(self):
+        n, route, dist = self.n, self.route, self.dist
+        c = 0.0
+        for edge in range(n):
+            city1, city2 = route[edge], route[(edge+1) % n]
+            c += dist[city1, city2]
+        return c
+
+    def copy(self):
+        return deepcopy(self)
+    
+    def delta_cost(self, move, debug=False):
+        n, route, dist = self.n, self.route, self.dist
+        
+        e1, e2 = move
+        city11, city12 = route[e1], route[e1+1]
+        city21, city22 = route[e2], route[(e2+1)%n]
+        c_old = dist[city11, city12] + dist[city21, city22]
+        c_new = dist[city11, city21] + dist[city12, city22]
+        delta_c = c_new - c_old
+        
+        if debug:
+             new_probl = self.copy()
+             new_probl.accept_move(move)
+             c_old = self.cost()
+             c_new = new_probl.cost()
+             delta_c_naive = c_new - c_old
+             assert abs(delta_c-delta_c_naive) < 1e-10
+
+        return delta_c
+
+    def all_moves(self):
+        n = self.n
+        moves = []
+        for e1 in range(n):
+            for e2 in range(e1+1,n):
+                move = (e1, e2)
+                moves.append(move)
+        return moves
+
