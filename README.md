@@ -1,2 +1,2 @@
 # university
-This repository contains examples of code samples and projects made throughout the university.
+This repository contains examples of code and projects created throughout the university.
