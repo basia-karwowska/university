@@ -1,1 +1,1 @@
-These folders contain some of my solutions to different exercises focused on optimization. The files are drafts with a lot of comments helpful for me to structure my thought process, but should not be considered as representative of my work.
+These folders contain some of my solutions to different exercises focused on optimization. The files are drafts with a lot of comments helpful for me to structure my thought process, but should not be considered as representative of my work. They serve as examples of the topics I studied and I am able to tackle.
